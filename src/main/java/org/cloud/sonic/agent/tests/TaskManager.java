@@ -3,23 +3,22 @@
  *   Copyright (C) 2022 SonicCloudOrg
  *
  *   This program is free software: you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation, either version 3 of the License, or
+ *   it under the terms of the GNU Affero General Public License as published
+ *   by the Free Software Foundation, either version 3 of the License, or
  *   (at your option) any later version.
  *
  *   This program is distributed in the hope that it will be useful,
  *   but WITHOUT ANY WARRANTY; without even the implied warranty of
  *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *   GNU General Public License for more details.
+ *   GNU Affero General Public License for more details.
  *
- *   You should have received a copy of the GNU General Public License
+ *   You should have received a copy of the GNU Affero General Public License
  *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 package org.cloud.sonic.agent.tests;
 
 import org.cloud.sonic.agent.common.interfaces.PlatformType;
 import org.cloud.sonic.agent.tests.android.AndroidTestTaskBootThread;
-import org.cloud.sonic.agent.tests.common.RunStepThread;
 import org.cloud.sonic.agent.tests.ios.IOSTestTaskBootThread;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,12 +56,12 @@ public class TaskManager {
     /**
      * 记录正在运行的rid记录
      */
-    private static Set<String> runningRidSet =  Collections.synchronizedSet(new HashSet<>());
+    private static Set<String> runningRidSet = Collections.synchronizedSet(new HashSet<>());
 
     /**
      * 记录正在运行的udId记录
      */
-    private static Set<String> runningUdIdSet =  Collections.synchronizedSet(new HashSet<>());
+    private static Set<String> runningUdIdSet = Collections.synchronizedSet(new HashSet<>());
 
     private static final Lock lock = new ReentrantLock();
 
@@ -84,8 +83,8 @@ public class TaskManager {
         addBootThread(bootThread.getName(), bootThread);
 
         String[] split = bootThread.getName().split("-");
-        runningRidSet.add(split[split.length-3] + "-" + split[split.length-1]);
-        runningUdIdSet.add(split[split.length-1]);
+        runningRidSet.add(split[split.length - 3] + "-" + split[split.length - 1]);
+        runningUdIdSet.add(split[split.length - 1]);
     }
 
     /**
@@ -198,8 +197,8 @@ public class TaskManager {
         childThreadsMap.remove(key);
 
         String[] split = key.split("-");
-        runningRidSet.remove(split[split.length-3] + "-" + split[split.length-1]);
-        runningUdIdSet.remove(split[split.length-1]);
+        runningRidSet.remove(split[split.length - 3] + "-" + split[split.length - 1]);
+        runningUdIdSet.remove(split[split.length - 1]);
     }
 
     /**
@@ -217,15 +216,15 @@ public class TaskManager {
             bootThreadsMap.remove(k);
 
             String[] split = k.split("-");
-            runningRidSet.remove(split[split.length-3] + "-" + split[split.length-1]);
-            runningUdIdSet.remove(split[split.length-1]);
+            runningRidSet.remove(split[split.length - 3] + "-" + split[split.length - 1]);
+            runningUdIdSet.remove(split[split.length - 1]);
         });
         // 删除boot衍生的线程
         terminatedThread.forEach((key, value) -> {
             childThreadsMap.remove(key);
             String[] split = key.split("-");
-            runningRidSet.remove(split[split.length-3] + "-" + split[split.length-1]);
-            runningUdIdSet.remove(split[split.length-1]);
+            runningRidSet.remove(split[split.length - 3] + "-" + split[split.length - 1]);
+            runningUdIdSet.remove(split[split.length - 1]);
         });
     }
 
@@ -270,7 +269,7 @@ public class TaskManager {
      * 不能使用 {@link Thread#stop()} 、{@link Thread#interrupt()} ，
      * 因为目前的websocket会用当前所属线程做一些事，强制停止会导致一些问题
      *
-     * @param key  子线程key
+     * @param key 子线程key
      */
     public static void forceStopDebugStepThread(String key) {
         Set<Thread> threads = childThreadsMap.get(key);

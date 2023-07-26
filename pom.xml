@@ -12,16 +12,26 @@
     <properties>
         <!--        [ "windows-x86", "windows-x86_64", "macosx-arm64", "macosx-x86_64", "linux-arm64", "linux-x86", "linux-x86_64" ]-->
         <platform>windows-x86_64</platform>
-        <maven.compiler.source>15</maven.compiler.source>
-        <maven.compiler.target>15</maven.compiler.target>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
     </properties>
 
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>2.4.11</version>
+        <version>3.0.5</version>
         <relativePath/>
     </parent>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>com.google.guava</groupId>
+                <artifactId>guava</artifactId>
+                <version>31.0.1-jre</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <!--   thymeleaf     -->
@@ -39,7 +49,7 @@
         <dependency>
             <groupId>org.java-websocket</groupId>
             <artifactId>Java-WebSocket</artifactId>
-            <version>1.5.2</version>
+            <version>1.5.3</version>
         </dependency>
         <!--  webSocket -->
         <dependency>
@@ -50,60 +60,62 @@
         <dependency>
             <groupId>com.android.tools.ddms</groupId>
             <artifactId>ddmlib</artifactId>
-            <version>30.0.4</version>
+            <version>31.0.1</version>
         </dependency>
         <!-- lombok -->
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
-            <version>1.18.20</version>
+            <version>1.18.28</version>
             <scope>compile</scope>
         </dependency>
-        <!--    json对象    -->
         <dependency>
             <groupId>com.alibaba</groupId>
             <artifactId>fastjson</artifactId>
-            <version>2.0.10</version>
+            <version>2.0.35</version>
         </dependency>
         <!--     Sonic UIAutomation Driver   -->
         <dependency>
             <groupId>io.github.soniccloudorg</groupId>
             <artifactId>sonic-driver-core</artifactId>
-            <version>1.1.11</version>
+            <version>1.1.28</version>
         </dependency>
-        <!--    压缩图片    -->
         <dependency>
             <groupId>net.coobird</groupId>
             <artifactId>thumbnailator</artifactId>
-            <version>0.4.13</version>
+            <version>0.4.19</version>
         </dependency>
         <!--  testNG   -->
         <dependency>
             <groupId>org.testng</groupId>
             <artifactId>testng</artifactId>
-            <version>6.9.10</version>
+            <version>7.8.0</version>
         </dependency>
         <!--    selenium    -->
         <dependency>
             <groupId>org.seleniumhq.selenium</groupId>
             <artifactId>selenium-java</artifactId>
-            <version>3.141.59</version>
+            <version>4.9.1</version>
         </dependency>
-        <!--    解析xml    -->
+        <dependency>
+            <groupId>org.seleniumhq.selenium</groupId>
+            <artifactId>selenium-http-jdk-client</artifactId>
+            <version>4.9.1</version>
+        </dependency>
         <dependency>
             <groupId>org.jsoup</groupId>
             <artifactId>jsoup</artifactId>
-            <version>1.15.3</version>
+            <version>1.15.4</version>
         </dependency>
         <dependency>
             <groupId>io.github.soniccloudorg</groupId>
             <artifactId>sonic-vision-core</artifactId>
-            <version>1.0.7-${platform}</version>
+            <version>1.0.14-${platform}</version>
         </dependency>
         <dependency>
-            <groupId>org.codehaus.groovy</groupId>
+            <groupId>org.apache.groovy</groupId>
             <artifactId>groovy-all</artifactId>
-            <version>3.0.13</version>
+            <version>4.0.11</version>
             <type>pom</type>
         </dependency>
         <dependency>
@@ -112,9 +124,18 @@
             <version>4.13.2</version>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.aspectj</groupId>
+            <artifactId>aspectjweaver</artifactId>
+            <version>1.9.19</version>
+        </dependency>
     </dependencies>
 
-    <!-- 镜像加速   -->
     <repositories>
         <repository>
             <id>google</id>
@@ -134,7 +155,6 @@
         </repository>
     </repositories>
 
-    <!-- 打包构建配置  -->
     <build>
         <resources>
             <resource>
@@ -142,12 +162,12 @@
                 <filtering>true</filtering>
             </resource>
         </resources>
-        <!--   最终打包的jar包名，使用artifactId     -->
         <finalName>${project.artifactId}-${platform}</finalName>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>3.0.5</version>
             </plugin>
         </plugins>
     </build>

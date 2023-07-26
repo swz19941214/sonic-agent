@@ -3,26 +3,26 @@
  *   Copyright (C) 2022 SonicCloudOrg
  *
  *   This program is free software: you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation, either version 3 of the License, or
+ *   it under the terms of the GNU Affero General Public License as published
+ *   by the Free Software Foundation, either version 3 of the License, or
  *   (at your option) any later version.
  *
  *   This program is distributed in the hope that it will be useful,
  *   but WITHOUT ANY WARRANTY; without even the implied warranty of
  *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *   GNU General Public License for more details.
+ *   GNU Affero General Public License for more details.
  *
- *   You should have received a copy of the GNU General Public License
+ *   You should have received a copy of the GNU Affero General Public License
  *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 package org.cloud.sonic.agent.tests;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
-import org.cloud.sonic.agent.automation.AndroidStepHandler;
 import org.cloud.sonic.agent.bridge.android.AndroidDeviceBridgeTool;
 import org.cloud.sonic.agent.common.interfaces.DeviceStatus;
 import org.cloud.sonic.agent.tests.android.AndroidTestTaskBootThread;
+import org.cloud.sonic.agent.tests.handlers.AndroidStepHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.ITestContext;
@@ -58,6 +58,7 @@ public class AndroidTests {
             deviceTestData.put("rid", dataInfo.getInteger("rid"));
             deviceTestData.put("cid", dataInfo.getInteger("cid"));
             deviceTestData.put("gp", dataInfo.getJSONObject("gp"));
+            deviceTestData.put("perf", dataInfo.getJSONObject("perf"));
             deviceTestData.put("device", iDevice);
             dataProvider.add(deviceTestData);
         }
@@ -86,7 +87,7 @@ public class AndroidTests {
         AndroidTestTaskBootThread bootThread = new AndroidTestTaskBootThread(jsonObject, androidStepHandler);
         // runningTestsMap的key在rid的基础上再加上udid，避免分发到设备上的用例不均，先执行的完的用例remove rid，导致用例执行不完全的问题
         if (!runningTestsMap.containsKey(rid + "-" + udId)) {
-            logger.info("任务【{}】中断，跳过", bootThread.getName());
+            logger.info("Task【{}】interrupted, skip.", bootThread.getName());
             return;
         }
         TaskManager.startBootThread(bootThread);
@@ -97,10 +98,10 @@ public class AndroidTests {
             e.printStackTrace();
         }
         if (bootThread.getForceStop()) {
-            logger.info("任务【{}】中断，跳过", bootThread.getName());
+            logger.info("Task【{}】interrupted, skip.", bootThread.getName());
             return;
         }
-        logger.info("任务【{}】完成", bootThread.getName());
+        logger.info("Task【{}】finish.", bootThread.getName());
     }
 
 }

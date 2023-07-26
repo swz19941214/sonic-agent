@@ -3,22 +3,23 @@
  *   Copyright (C) 2022 SonicCloudOrg
  *
  *   This program is free software: you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation, either version 3 of the License, or
+ *   it under the terms of the GNU Affero General Public License as published
+ *   by the Free Software Foundation, either version 3 of the License, or
  *   (at your option) any later version.
  *
  *   This program is distributed in the hope that it will be useful,
  *   but WITHOUT ANY WARRANTY; without even the implied warranty of
  *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *   GNU General Public License for more details.
+ *   GNU Affero General Public License for more details.
  *
- *   You should have received a copy of the GNU General Public License
+ *   You should have received a copy of the GNU Affero General Public License
  *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 package org.cloud.sonic.agent.tools;
 
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -32,10 +33,18 @@ public class ScheduleTool {
     );
 
     public static void scheduleAtFixedRate(Runnable command,
-                                    long initialDelay,
-                                    long period,
-                                    TimeUnit unit) {
+                                           long initialDelay,
+                                           long period,
+                                           TimeUnit unit) {
         scheduledExecutorService.scheduleAtFixedRate(command, initialDelay, period, unit);
+    }
+
+    public static ScheduledFuture<?> schedule(Runnable command, long initialDelay, TimeUnit unit) {
+        return scheduledExecutorService.schedule(command, initialDelay, unit);
+    }
+
+    public static ScheduledFuture<?> schedule(Runnable command, long initialDelay) {
+        return schedule(command, initialDelay, TimeUnit.MINUTES);
     }
 
 }

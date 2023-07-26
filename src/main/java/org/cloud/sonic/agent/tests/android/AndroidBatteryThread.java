@@ -3,16 +3,16 @@
  *   Copyright (C) 2022 SonicCloudOrg
  *
  *   This program is free software: you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation, either version 3 of the License, or
+ *   it under the terms of the GNU Affero General Public License as published
+ *   by the Free Software Foundation, either version 3 of the License, or
  *   (at your option) any later version.
  *
  *   This program is distributed in the hope that it will be useful,
  *   but WITHOUT ANY WARRANTY; without even the implied warranty of
  *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *   GNU General Public License for more details.
+ *   GNU Affero General Public License for more details.
  *
- *   You should have received a copy of the GNU General Public License
+ *   You should have received a copy of the GNU Affero General Public License
  *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 package org.cloud.sonic.agent.tests.android;
@@ -60,15 +60,18 @@ public class AndroidBatteryThread implements Runnable {
         for (IDevice iDevice : deviceList) {
             JSONObject jsonObject = new JSONObject();
             String battery = AndroidDeviceBridgeTool
-                    .executeCommand(iDevice, "dumpsys battery");
+                    .executeCommand(iDevice, "dumpsys battery").replace("Max charging voltage", "");
             if (StringUtils.hasText(battery)) {
                 String realTem = battery.substring(battery.indexOf("temperature")).trim();
                 int tem = BytesTool.getInt(realTem.substring(13, realTem.indexOf("\n")));
                 String realLevel = battery.substring(battery.indexOf("level")).trim();
                 int level = BytesTool.getInt(realLevel.substring(7, realLevel.indexOf("\n")));
+                String realVol = battery.substring(battery.indexOf("voltage")).trim();
+                int vol = BytesTool.getInt(realVol.substring(9, realVol.indexOf("\n")));
                 jsonObject.put("udId", iDevice.getSerialNumber());
                 jsonObject.put("tem", tem);
                 jsonObject.put("level", level);
+                jsonObject.put("vol", vol);
                 detail.add(jsonObject);
                 //control
                 if (tem >= BytesTool.highTemp * 10) {

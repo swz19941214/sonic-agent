@@ -3,25 +3,25 @@
  *   Copyright (C) 2022 SonicCloudOrg
  *
  *   This program is free software: you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation, either version 3 of the License, or
+ *   it under the terms of the GNU Affero General Public License as published
+ *   by the Free Software Foundation, either version 3 of the License, or
  *   (at your option) any later version.
  *
  *   This program is distributed in the hope that it will be useful,
  *   but WITHOUT ANY WARRANTY; without even the implied warranty of
  *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *   GNU General Public License for more details.
+ *   GNU Affero General Public License for more details.
  *
- *   You should have received a copy of the GNU General Public License
+ *   You should have received a copy of the GNU Affero General Public License
  *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 package org.cloud.sonic.agent.tests.handlers;
 
 import com.alibaba.fastjson.JSONObject;
-import org.cloud.sonic.agent.common.models.HandleDes;
 import org.cloud.sonic.agent.common.enums.ConditionEnum;
 import org.cloud.sonic.agent.common.enums.SonicEnum;
-import org.cloud.sonic.agent.tests.common.RunStepThread;
+import org.cloud.sonic.agent.common.models.HandleContext;
+import org.cloud.sonic.agent.tests.RunStepThread;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationListener;
@@ -47,12 +47,16 @@ public class StepHandlers implements ApplicationListener<ContextRefreshedEvent> 
     private final ConcurrentHashMap<ConditionEnum, StepHandler> stepHandlers =
             new ConcurrentHashMap<>(8);
 
-    public HandleDes runStep(JSONObject stepJSON, HandleDes handleDes, RunStepThread thread) throws Throwable {
+    public HandleContext runStep(JSONObject stepJSON, HandleContext handleContext, RunStepThread thread) throws Throwable {
         JSONObject step = stepJSON.getJSONObject("step");
+        // 兼容childSteps
+        if (CollectionUtils.isEmpty(step)) {
+            step = stepJSON;
+        }
         Integer conditionType = step.getInteger("conditionType");
         getSupportedCondition(SonicEnum.valueToEnum(ConditionEnum.class, conditionType))
-                .runStep(stepJSON, handleDes, thread);
-        return handleDes;
+                .runStep(stepJSON, handleContext, thread);
+        return handleContext;
     }
 
     @NonNull

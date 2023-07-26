@@ -3,16 +3,16 @@
  *   Copyright (C) 2022 SonicCloudOrg
  *
  *   This program is free software: you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation, either version 3 of the License, or
+ *   it under the terms of the GNU Affero General Public License as published
+ *   by the Free Software Foundation, either version 3 of the License, or
  *   (at your option) any later version.
  *
  *   This program is distributed in the hope that it will be useful,
  *   but WITHOUT ANY WARRANTY; without even the implied warranty of
  *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *   GNU General Public License for more details.
+ *   GNU Affero General Public License for more details.
  *
- *   You should have received a copy of the GNU General Public License
+ *   You should have received a copy of the GNU Affero General Public License
  *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 package org.cloud.sonic.agent.bridge.android;
@@ -20,8 +20,11 @@ package org.cloud.sonic.agent.bridge.android;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import com.android.ddmlib.*;
+import lombok.extern.slf4j.Slf4j;
+import org.cloud.sonic.agent.common.enums.AndroidKey;
 import org.cloud.sonic.agent.common.maps.AndroidThreadMap;
 import org.cloud.sonic.agent.common.maps.AndroidWebViewMap;
+import org.cloud.sonic.agent.common.maps.ChromeDriverMap;
 import org.cloud.sonic.agent.common.maps.GlobalProcessMap;
 import org.cloud.sonic.agent.tests.android.AndroidBatteryThread;
 import org.cloud.sonic.agent.tools.BytesTool;
@@ -30,11 +33,8 @@ import org.cloud.sonic.agent.tools.ScheduleTool;
 import org.cloud.sonic.agent.tools.file.DownloadTool;
 import org.cloud.sonic.agent.tools.file.FileTool;
 import org.cloud.sonic.agent.tools.file.UploadTools;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.ApplicationListener;
 import org.springframework.context.annotation.DependsOn;
 import org.springframework.context.event.ContextRefreshedEvent;
@@ -43,11 +43,13 @@ import org.springframework.core.annotation.Order;
 import org.springframework.http.*;
 import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -58,16 +60,17 @@ import java.util.stream.Collectors;
  * @des ADB工具类
  * @date 2021/08/16 19:26
  */
-@ConditionalOnProperty(value = "modules.android.enable", havingValue = "true")
 @DependsOn({"androidThreadPoolInit"})
 @Component
+@Slf4j
 @Order(value = Ordered.HIGHEST_PRECEDENCE)
 public class AndroidDeviceBridgeTool implements ApplicationListener<ContextRefreshedEvent> {
-    private static final Logger logger = LoggerFactory.getLogger(AndroidDeviceBridgeTool.class);
     public static AndroidDebugBridge androidDebugBridge = null;
     private static String uiaApkVersion;
     private static String apkVersion;
     private static RestTemplate restTemplate;
+
+    private static Map<String, Integer> forwardPortMap = new ConcurrentHashMap<>();
     @Value("${sonic.saa}")
     private String ver;
     @Value("${sonic.saus}")
@@ -82,7 +85,7 @@ public class AndroidDeviceBridgeTool implements ApplicationListener<ContextRefre
     @Override
     public void onApplicationEvent(@NonNull ContextRefreshedEvent event) {
         init();
-        logger.info("Enable Android Module");
+        log.info("Enable Android Module");
     }
 
     /**
@@ -96,8 +99,7 @@ public class AndroidDeviceBridgeTool implements ApplicationListener<ContextRefre
         if (path != null) {
             path += File.separator + "platform-tools" + File.separator + "adb";
         } else {
-            logger.error("Get ANDROID_HOME env failed!");
-            return null;
+            path = "plugins" + File.separator + "adb";
         }
         return path;
     }
@@ -121,14 +123,14 @@ public class AndroidDeviceBridgeTool implements ApplicationListener<ContextRefre
             //开始创建ADB
             androidDebugBridge = AndroidDebugBridge.createBridge(systemADBPath, true, Long.MAX_VALUE, TimeUnit.MILLISECONDS);
             if (androidDebugBridge != null) {
-                logger.info("Android devices listening...");
+                log.info("Android devices listening...");
             }
         } catch (IllegalStateException e) {
-            logger.warn("AndroidDebugBridge has been init!");
+            log.warn("AndroidDebugBridge has been init!");
         }
         int count = 0;
         //获取设备列表，超时后退出
-        while (androidDebugBridge.hasInitialDeviceList() == false) {
+        while (!androidDebugBridge.hasInitialDeviceList()) {
             try {
                 Thread.sleep(1000);
             } catch (InterruptedException e) {
@@ -190,7 +192,7 @@ public class AndroidDeviceBridgeTool implements ApplicationListener<ContextRefre
     public static IDevice getIDeviceByUdId(String udId) {
         IDevice iDevice = null;
         IDevice[] iDevices = AndroidDeviceBridgeTool.getRealOnLineDevices();
-        if (iDevices.length == 0) {
+        if (iDevices == null || iDevices.length == 0) {
             return null;
         }
         for (IDevice device : iDevices) {
@@ -202,7 +204,7 @@ public class AndroidDeviceBridgeTool implements ApplicationListener<ContextRefre
             }
         }
         if (iDevice == null) {
-            logger.info("Device 「{}」 has not connected!", udId);
+            log.info("Device 「{}」 has not connected!", udId);
         }
         return iDevice;
     }
@@ -234,7 +236,7 @@ public class AndroidDeviceBridgeTool implements ApplicationListener<ContextRefre
                 size = "unknown";
             }
         } catch (Exception e) {
-            logger.info("Get screen size failed, ignore when plug in moment...");
+            log.info("Get screen size failed, ignore when plug in moment...");
         }
         return size;
     }
@@ -252,29 +254,45 @@ public class AndroidDeviceBridgeTool implements ApplicationListener<ContextRefre
         try {
             iDevice.executeShellCommand(command, output, 0, TimeUnit.MILLISECONDS);
         } catch (Exception e) {
-            logger.info("Send shell command {} to device {} failed."
+            log.info("Send shell command {} to device {} failed."
                     , command, iDevice.getSerialNumber());
-            logger.error(e.getMessage());
+            log.error(e.getMessage());
         }
         return output.getOutput();
     }
 
+    public static void install(IDevice iDevice, String path) throws InstallException {
+        try {
+            iDevice.installPackage(path,
+                    true, new InstallReceiver(), 180L, 180L, TimeUnit.MINUTES
+                    , "-r", "-t", "-g");
+        } catch (InstallException e) {
+            log.info("{} install failed, cause {}, retry...", path, e.getMessage());
+            try {
+                iDevice.installPackage(path,
+                        true, new InstallReceiver(), 180L, 180L, TimeUnit.MINUTES
+                        , "-r", "-t");
+            } catch (InstallException e2) {
+                log.info("{} install failed, cause {}, retry...", path, e2.getMessage());
+                try {
+                    iDevice.installPackage(path,
+                            true, new InstallReceiver(), 180L, 180L, TimeUnit.MINUTES);
+                } catch (InstallException e3) {
+                    log.info("{} install failed, cause {}", path, e3.getMessage());
+                    throw e3;
+                }
+            }
+        }
+    }
+
     public static boolean checkSonicApkVersion(IDevice iDevice) {
         String all = executeCommand(iDevice, "dumpsys package org.cloud.sonic.android");
-        if (!all.contains("versionName=" + apkVersion)) {
-            return false;
-        } else {
-            return true;
-        }
+        return all.contains("versionName=" + apkVersion);
     }
 
     public static boolean checkUiaApkVersion(IDevice iDevice) {
         String all = executeCommand(iDevice, "dumpsys package io.appium.uiautomator2.server");
-        if (!all.contains("versionName=" + uiaApkVersion)) {
-            return false;
-        } else {
-            return true;
-        }
+        return all.contains("versionName=" + uiaApkVersion);
     }
 
     /**
@@ -287,20 +305,32 @@ public class AndroidDeviceBridgeTool implements ApplicationListener<ContextRefre
      * @date 2021/8/16 19:52
      */
     public static void forward(IDevice iDevice, int port, String service) {
+        String name = String.format("process-%s-forward-%s", iDevice.getSerialNumber(), service);
+        Integer oldP = forwardPortMap.get(name);
+        if (oldP != null) {
+            removeForward(iDevice, oldP, service);
+        }
         try {
-            logger.info("{} device {} port forward to {}", iDevice.getSerialNumber(), service, port);
+            log.info("{} device {} port forward to {}", iDevice.getSerialNumber(), service, port);
             iDevice.createForward(port, service, IDevice.DeviceUnixSocketNamespace.ABSTRACT);
+            forwardPortMap.put(name, port);
         } catch (Exception e) {
-            logger.error(e.getMessage());
+            log.error(e.getMessage());
         }
     }
 
     public static void forward(IDevice iDevice, int port, int target) {
+        String name = String.format("process-%s-forward-%d", iDevice.getSerialNumber(), target);
+        Integer oldP = forwardPortMap.get(name);
+        if (oldP != null) {
+            removeForward(iDevice, oldP, target);
+        }
         try {
-            logger.info("{} device {} forward to {}", iDevice.getSerialNumber(), target, port);
+            log.info("{} device {} forward to {}", iDevice.getSerialNumber(), target, port);
             iDevice.createForward(port, target);
+            forwardPortMap.put(name, port);
         } catch (Exception e) {
-            logger.error(e.getMessage());
+            log.error(e.getMessage());
         }
     }
 
@@ -315,19 +345,27 @@ public class AndroidDeviceBridgeTool implements ApplicationListener<ContextRefre
      */
     public static void removeForward(IDevice iDevice, int port, String serviceName) {
         try {
-            logger.info("cancel {} device {} port forward to {}", iDevice.getSerialNumber(), serviceName, port);
-            iDevice.removeForward(port, serviceName, IDevice.DeviceUnixSocketNamespace.ABSTRACT);
+            log.info("cancel {} device {} port forward to {}", iDevice.getSerialNumber(), serviceName, port);
+            iDevice.removeForward(port);
+            String name = String.format("process-%s-forward-%s", iDevice.getSerialNumber(), serviceName);
+            if (forwardPortMap.get(name) != null) {
+                forwardPortMap.remove(name);
+            }
         } catch (Exception e) {
-            logger.error(e.getMessage());
+            log.error(e.getMessage());
         }
     }
 
     public static void removeForward(IDevice iDevice, int port, int target) {
         try {
-            logger.info("cancel {} device {} forward to {}", iDevice.getSerialNumber(), target, port);
-            iDevice.removeForward(port, target);
+            log.info("cancel {} device {} forward to {}", iDevice.getSerialNumber(), target, port);
+            iDevice.removeForward(port);
+            String name = String.format("process-%s-forward-%d", iDevice.getSerialNumber(), target);
+            if (forwardPortMap.get(name) != null) {
+                forwardPortMap.remove(name);
+            }
         } catch (Exception e) {
-            logger.error(e.getMessage());
+            log.error(e.getMessage());
         }
     }
 
@@ -348,7 +386,7 @@ public class AndroidDeviceBridgeTool implements ApplicationListener<ContextRefre
 //            try {
 //                pb.start();
 //            } catch (IOException e) {
-//                logger.error(e.getMessage());
+//                log.error(e.getMessage());
 //                return;
 //            }
 //        });
@@ -366,22 +404,20 @@ public class AndroidDeviceBridgeTool implements ApplicationListener<ContextRefre
         executeCommand(iDevice, String.format("input keyevent %s", keyNum));
     }
 
-    public static void install(IDevice iDevice, String path) throws InstallException {
-        iDevice.installPackage(path,
-                true, new InstallReceiver(), 180L, 180L, TimeUnit.MINUTES
-                , "-r", "-t", "-g");
+    public static void pressKey(IDevice iDevice, AndroidKey androidKey) {
+        executeCommand(iDevice, String.format("input keyevent %s", androidKey.getCode()));
     }
 
-    public static void uninstall(IDevice iDevice, String bundleId) throws InstallException {
-        iDevice.uninstallPackage(bundleId);
+    public static String uninstall(IDevice iDevice, String bundleId) throws InstallException {
+        return iDevice.uninstallPackage(bundleId);
     }
 
     public static void forceStop(IDevice iDevice, String bundleId) {
         executeCommand(iDevice, String.format("am force-stop %s", bundleId));
     }
 
-    public static void activateApp(IDevice iDevice, String bundleId) {
-        executeCommand(iDevice, String.format("monkey -p %s -c android.intent.category.LAUNCHER 1", bundleId));
+    public static String activateApp(IDevice iDevice, String bundleId) {
+        return executeCommand(iDevice, String.format("monkey -p %s -c android.intent.category.LAUNCHER 1", bundleId));
     }
 
     /**
@@ -405,7 +441,7 @@ public class AndroidDeviceBridgeTool implements ApplicationListener<ContextRefre
      */
     public static String matchMiniCapFile(String sdk) {
         String filePath;
-        if (Integer.valueOf(sdk) < 16) {
+        if (Integer.parseInt(sdk) < 16) {
             filePath = "minicap-nopie";
         } else {
             filePath = "minicap";
@@ -425,28 +461,27 @@ public class AndroidDeviceBridgeTool implements ApplicationListener<ContextRefre
         int p = getScreen(iDevice);
         try {
             switch (type) {
-                case "abort":
-                    executeCommand(iDevice, "content insert --uri content://settings/system --bind name:s:accelerometer_rotation --bind value:i:0");
-                    break;
-                case "add":
+                case "abort" ->
+                        executeCommand(iDevice, "content insert --uri content://settings/system --bind name:s:accelerometer_rotation --bind value:i:0");
+                case "add" -> {
                     if (p == 3) {
                         p = 0;
                     } else {
                         p++;
                     }
                     executeCommand(iDevice, "content insert --uri content://settings/system --bind name:s:user_rotation --bind value:i:" + p);
-                    break;
-                case "sub":
+                }
+                case "sub" -> {
                     if (p == 0) {
                         p = 3;
                     } else {
                         p--;
                     }
                     executeCommand(iDevice, "content insert --uri content://settings/system --bind name:s:user_rotation --bind value:i:" + p);
-                    break;
+                }
             }
         } catch (Exception e) {
-            logger.error(e.getMessage());
+            log.error(e.getMessage());
         }
     }
 
@@ -456,17 +491,16 @@ public class AndroidDeviceBridgeTool implements ApplicationListener<ContextRefre
                     .trim().replaceAll("\n", "")
                     .replace("\t", ""));
         } catch (Exception e) {
-            logger.error(e.getMessage());
+            log.error(e.getMessage());
             return 0;
         }
     }
 
     public static int getOrientation(IDevice iDevice) {
         String inputs = executeCommand(iDevice, "dumpsys input");
-        if (inputs.indexOf("SurfaceOrientation") != -1) {
+        if (inputs.contains("SurfaceOrientation")) {
             String orientationS = inputs.substring(inputs.indexOf("SurfaceOrientation")).trim();
-            int o = BytesTool.getInt(orientationS.substring(20, orientationS.indexOf("\n")));
-            return o;
+            return BytesTool.getInt(orientationS.substring(20, orientationS.indexOf("\n")));
         } else {
             inputs = executeCommand(iDevice, "dumpsys window displays");
             String orientationS = inputs.substring(inputs.indexOf("cur=")).trim();
@@ -518,46 +552,48 @@ public class AndroidDeviceBridgeTool implements ApplicationListener<ContextRefre
     }
 
     public static String getCurrentPackage(IDevice iDevice) {
-        Integer api = Integer.parseInt(iDevice.getProperty(IDevice.PROP_BUILD_API_LEVEL));
+        int api = Integer.parseInt(iDevice.getProperty(IDevice.PROP_BUILD_API_LEVEL));
         String cmd = AndroidDeviceBridgeTool.executeCommand(iDevice,
-                String.format("dumpsys window %s", ((api != null && api >= 29) ? "displays" : "windows")));
+                String.format("dumpsys window %s", api >= 29 ? "displays" : "windows"));
         String result = "";
         try {
             String start = cmd.substring(cmd.indexOf("mCurrentFocus="));
             String end = start.substring(0, start.indexOf("/"));
             result = end.substring(end.lastIndexOf(" ") + 1);
-        } catch (Exception e) {
+        } catch (Exception ignored) {
         }
         if (result.length() == 0) {
             try {
                 String start = cmd.substring(cmd.indexOf("mFocusedApp="));
                 String startCut = start.substring(0, start.indexOf("/"));
-                String packageName = startCut.substring(startCut.lastIndexOf(" ") + 1);
-                result = packageName;
-            } catch (Exception e) {
+                result = startCut.substring(startCut.lastIndexOf(" ") + 1);
+            } catch (Exception ignored) {
             }
         }
         return result;
     }
 
     public static String getCurrentActivity(IDevice iDevice) {
-        Integer api = Integer.parseInt(iDevice.getProperty(IDevice.PROP_BUILD_API_LEVEL));
+        int api = Integer.parseInt(iDevice.getProperty(IDevice.PROP_BUILD_API_LEVEL));
         String cmd = AndroidDeviceBridgeTool.executeCommand(iDevice,
-                String.format("dumpsys window %s", ((api != null && api >= 29) ? "displays" : "windows")));
+                String.format("dumpsys window %s", api >= 29 ? "displays" : "windows"));
         String result = "";
         try {
-            String start = cmd.substring(cmd.indexOf("mCurrentFocus="));
-            String end = start.substring(start.indexOf("/") + 1);
-            result = end.substring(0, end.indexOf("}"));
-        } catch (Exception e) {
+            Pattern pattern = Pattern.compile("mCurrentFocus=(?!null)[^,]+");
+            Matcher matcher = pattern.matcher(cmd);
+            if (matcher.find()) {
+                String start = cmd.substring(matcher.start());
+                String end = start.substring(start.indexOf("/") + 1);
+                result = end.substring(0, end.indexOf("}"));
+            }
+        } catch (Exception ignored) {
         }
         if (result.length() == 0) {
             try {
                 String start = cmd.substring(cmd.indexOf("mFocusedApp="));
                 String end = start.substring(start.indexOf("/") + 1);
-                String endCut = end.substring(0, end.indexOf(" "));
-                result = endCut;
-            } catch (Exception e) {
+                result = end.substring(0, end.indexOf(" "));
+            } catch (Exception ignored) {
             }
         }
         return result;
@@ -568,13 +604,7 @@ public class AndroidDeviceBridgeTool implements ApplicationListener<ContextRefre
             File image = DownloadTool.download(url);
             iDevice.pushFile(image.getAbsolutePath(), "/sdcard/DCIM/Camera/" + image.getName());
             executeCommand(iDevice, "am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/DCIM/Camera/" + image.getName());
-        } catch (IOException e) {
-            e.printStackTrace();
-        } catch (AdbCommandRejectedException e) {
-            e.printStackTrace();
-        } catch (SyncException e) {
-            e.printStackTrace();
-        } catch (TimeoutException e) {
+        } catch (IOException | AdbCommandRejectedException | SyncException | TimeoutException e) {
             e.printStackTrace();
         }
     }
@@ -607,7 +637,7 @@ public class AndroidDeviceBridgeTool implements ApplicationListener<ContextRefre
         }
         try {
             Process process = null;
-            String command = String.format("%s pull %s %s", getADBPathFromSystemEnv(), path, file.getAbsolutePath());
+            String command = String.format("%s -s %s pull %s %s", getADBPathFromSystemEnv(), iDevice.getSerialNumber(), path, file.getAbsolutePath());
             if (system.contains("win")) {
                 process = Runtime.getRuntime().exec(new String[]{"cmd", "/c", command});
             } else if (system.contains("linux") || system.contains("mac")) {
@@ -649,26 +679,50 @@ public class AndroidDeviceBridgeTool implements ApplicationListener<ContextRefre
         return result;
     }
 
-    public static int startUiaServer(IDevice iDevice) throws InstallException {
+    public static boolean installSonicApk(IDevice iDevice) {
+        String path = executeCommand(iDevice, "pm path org.cloud.sonic.android").trim()
+                .replaceAll("package:", "")
+                .replaceAll("\n", "")
+                .replaceAll("\t", "");
+        if (path.length() > 0 && checkSonicApkVersion(iDevice)) {
+            log.info("Check Sonic Apk version and status pass...");
+            return true;
+        } else {
+            log.info("Sonic Apk version not newest or not install, starting install...");
+            try {
+                uninstall(iDevice, "org.cloud.sonic.android");
+            } catch (InstallException e) {
+                log.info("uninstall sonic Apk err, cause {}", e.getMessage());
+            }
+            try {
+                install(iDevice, "plugins/sonic-android-apk.apk");
+                executeCommand(iDevice, "appops set org.cloud.sonic.android POST_NOTIFICATION allow");
+                executeCommand(iDevice, "appops set org.cloud.sonic.android RUN_IN_BACKGROUND allow");
+                executeCommand(iDevice, "dumpsys deviceidle whitelist +org.cloud.sonic.android");
+                log.info("Sonic Apk install successful.");
+                return true;
+            } catch (InstallException e) {
+                log.info("Sonic Apk install failed.");
+                return false;
+            }
+        }
+    }
+
+    public static int startUiaServer(IDevice iDevice, int port) throws InstallException {
         Thread s = AndroidThreadMap.getMap().get(String.format("%s-uia-thread", iDevice.getSerialNumber()));
         if (s != null) {
             s.interrupt();
         }
         if (!checkUiaApkVersion(iDevice)) {
-            iDevice.uninstallPackage("io.appium.uiautomator2.server");
-            iDevice.uninstallPackage("io.appium.uiautomator2.server.test");
-            iDevice.installPackage("plugins/sonic-appium-uiautomator2-server.apk",
-                    true, new InstallReceiver(), 180L, 180L, TimeUnit.MINUTES
-                    , "-r", "-t");
-            iDevice.installPackage("plugins/sonic-appium-uiautomator2-server-test.apk",
-                    true, new InstallReceiver(), 180L, 180L, TimeUnit.MINUTES
-                    , "-r", "-t");
+            uninstall(iDevice, "io.appium.uiautomator2.server");
+            uninstall(iDevice, "io.appium.uiautomator2.server.test");
+            install(iDevice, "plugins/sonic-appium-uiautomator2-server.apk");
+            install(iDevice, "plugins/sonic-appium-uiautomator2-server-test.apk");
             executeCommand(iDevice, "appops set io.appium.uiautomator2.server RUN_IN_BACKGROUND allow");
             executeCommand(iDevice, "appops set io.appium.uiautomator2.server.test RUN_IN_BACKGROUND allow");
             executeCommand(iDevice, "dumpsys deviceidle whitelist +io.appium.uiautomator2.server");
             executeCommand(iDevice, "dumpsys deviceidle whitelist +io.appium.uiautomator2.server.test");
         }
-        int port = PortTool.getPort();
         UiaThread uiaThread = new UiaThread(iDevice, port);
         uiaThread.start();
         int wait = 0;
@@ -685,6 +739,10 @@ public class AndroidDeviceBridgeTool implements ApplicationListener<ContextRefre
         }
         AndroidThreadMap.getMap().put(String.format("%s-uia-thread", iDevice.getSerialNumber()), uiaThread);
         return port;
+    }
+
+    public static int startUiaServer(IDevice iDevice) throws InstallException {
+        return startUiaServer(iDevice, PortTool.getPort());
     }
 
     static class UiaThread extends Thread {
@@ -711,7 +769,7 @@ public class AndroidDeviceBridgeTool implements ApplicationListener<ContextRefre
                             @Override
                             public void addOutput(byte[] bytes, int i, int i1) {
                                 String res = new String(bytes, i, i1);
-                                logger.info(res);
+                                log.info(res);
                                 if (res.contains("io.appium.uiautomator2.server.test.AppiumUiAutomator2Server:")) {
                                     try {
                                         Thread.sleep(2000);
@@ -731,9 +789,9 @@ public class AndroidDeviceBridgeTool implements ApplicationListener<ContextRefre
                                 return false;
                             }
                         }, 0, TimeUnit.MILLISECONDS);
-            } catch (Exception e) {
+            } catch (Exception ignored) {
             } finally {
-                AndroidDeviceBridgeTool.removeForward(iDevice, port, 6790);
+                removeForward(iDevice, port, 6790);
             }
         }
 
@@ -753,7 +811,32 @@ public class AndroidDeviceBridgeTool implements ApplicationListener<ContextRefre
         AndroidWebViewMap.getMap().remove(iDevice);
     }
 
-    public static File getChromeDriver(IDevice iDevice, String packageName) throws IOException {
+    public static void sendKeysByKeyboard(IDevice iDevice, String msg) {
+        executeCommand(iDevice, String.format("am broadcast -a SONIC_KEYBOARD --es msg \"%s\"", msg));
+    }
+
+    public static boolean setClipperByKeyboard(IDevice iDevice, String msg) {
+        String suc = executeCommand(iDevice, String.format("am broadcast -a SONIC_CLIPPER_SET --es msg \"%s\"", msg));
+        return suc.contains("result=-1");
+    }
+
+    public static String getClipperByKeyboard(IDevice iDevice) {
+        String suc = executeCommand(iDevice, "am broadcast -a SONIC_CLIPPER_GET");
+        if (suc.contains("result=-1")) {
+            return suc.substring(suc.indexOf("data=\"") + 6, suc.length() - 2);
+        } else {
+            return "";
+        }
+    }
+
+    /**
+     * 获取完整的ChromeVersion，格式:83.0.4103.106
+     *
+     * @param iDevice     IDevice
+     * @param packageName 应用包名
+     * @return 完整的ChromeVersion
+     */
+    public static String getFullChromeVersion(IDevice iDevice, String packageName) {
         String chromeVersion = "";
         List<JSONObject> result = getWebView(iDevice);
         if (result.size() > 0) {
@@ -764,23 +847,51 @@ public class AndroidDeviceBridgeTool implements ApplicationListener<ContextRefre
                 }
             }
         }
-        clearWebView(iDevice);
         if (chromeVersion.length() == 0) {
             return null;
         } else {
             chromeVersion = chromeVersion.replace("Chrome/", "");
         }
+        return chromeVersion;
+    }
+
+    /**
+     * 只获取ChromeVersion的主版本
+     *
+     * @param chromeVersion 完整的ChromeVersion，格式:83.0.4103.106
+     * @return 主版本，如83
+     */
+    public static String getMajorChromeVersion(String chromeVersion) {
+        if (StringUtils.isEmpty(chromeVersion)) {
+            return null;
+        }
+        int end = (chromeVersion.contains(".") ? chromeVersion.indexOf(".") : chromeVersion.length() - 1);
+        return chromeVersion.substring(0, end);
+    }
+
+    /**
+     * 根据IDevice以及完整的ChromeVersion获取chromeDriver
+     *
+     * @param iDevice           IDevice
+     * @param fullChromeVersion 完整的版本号，形如:83.0.4103.106
+     * @return chromeDriver file
+     * @throws IOException IOException
+     */
+    public static File getChromeDriver(IDevice iDevice, String fullChromeVersion) throws IOException {
+        if (fullChromeVersion == null) {
+            return null;
+        }
+        clearWebView(iDevice);
+
         String system = System.getProperty("os.name").toLowerCase();
-        File search = new File(String.format("webview/%s_chromedriver%s", chromeVersion,
+        File search = new File(String.format("webview/%s_chromedriver%s", fullChromeVersion,
                 (system.contains("win") ? ".exe" : "")));
         if (search.exists()) {
             return search;
         }
-        int end = (chromeVersion.indexOf(".") != -1 ? chromeVersion.indexOf(".") : chromeVersion.length() - 1);
-        String major = chromeVersion.substring(0, end);
+
+        String majorChromeVersion = getMajorChromeVersion(fullChromeVersion);
         HttpHeaders headers = new HttpHeaders();
-        ResponseEntity<String> infoEntity =
-                restTemplate.exchange(String.format("https://chromedriver.storage.googleapis.com/LATEST_RELEASE_%s", major), HttpMethod.GET, new HttpEntity(headers), String.class);
         if (system.contains("win")) {
             system = "win32";
         } else if (system.contains("linux")) {
@@ -788,31 +899,37 @@ public class AndroidDeviceBridgeTool implements ApplicationListener<ContextRefre
         } else {
             String arch = System.getProperty("os.arch").toLowerCase();
             if (arch.contains("aarch64")) {
-                // fix m1 arm version obtained is lower than 87 for special processing
-                String driverList = restTemplate.exchange(String.format("https://registry.npmmirror.com/-/binary/chromedriver/%s/", infoEntity.getBody()), HttpMethod.GET, new HttpEntity(headers), String.class).getBody();
+                String driverList = restTemplate.exchange(String.format("https://registry.npmmirror.com/-/binary/chromedriver/%s/",
+                        ChromeDriverMap.getMap().get(majorChromeVersion)), HttpMethod.GET, new HttpEntity(headers), String.class).getBody();
+                boolean findM1ChromeDriver = false;
                 for (Object obj : JSONArray.parseArray(driverList)) {
                     JSONObject jsonObject = JSONObject.parseObject(obj.toString());
                     String fullName = jsonObject.getString("name");
                     if (fullName.contains("m1") || fullName.contains("arm")) {
                         system = fullName.substring(fullName.indexOf("mac"), fullName.indexOf("."));
+                        findM1ChromeDriver = true;
                         break;
                     }
+                }
+                // <=86版本，google未提供M1架构的chromeDriver，改为固定用chromedriver_mac64.zip
+                if (!findM1ChromeDriver) {
+                    system = "mac64";
                 }
             } else {
                 system = "mac64";
             }
         }
-        File file = DownloadTool.download(String.format("https://cdn.npmmirror.com/binaries/chromedriver/%s/chromedriver_%s.zip", infoEntity.getBody(), system));
-        File driver = FileTool.unZipChromeDriver(file, chromeVersion);
-        return driver;
+        File file = DownloadTool.download(String.format("https://cdn.npmmirror.com/binaries/chromedriver/%s/chromedriver_%s.zip",
+                ChromeDriverMap.getMap().get(majorChromeVersion), system));
+        return FileTool.unZipChromeDriver(file, fullChromeVersion);
     }
 
     public static List<JSONObject> getWebView(IDevice iDevice) {
         clearWebView(iDevice);
         List<JSONObject> has = new ArrayList<>();
         Set<String> webSet = new HashSet<>();
-        List<String> out = Arrays.asList(AndroidDeviceBridgeTool
-                .executeCommand(iDevice, "cat /proc/net/unix").split("\n"));
+        String[] out = AndroidDeviceBridgeTool
+                .executeCommand(iDevice, "cat /proc/net/unix").split("\n");
         for (String w : out) {
             if (w.contains("webview") || w.contains("WebView") || w.contains("_devtools_remote")) {
                 if (w.contains("@") && w.indexOf("@") + 1 < w.length()) {
@@ -860,8 +977,7 @@ public class AndroidDeviceBridgeTool implements ApplicationListener<ContextRefre
                         r.put("children", child);
                         result.add(r);
                     }
-                } catch (Exception e) {
-                    continue;
+                } catch (Exception ignored) {
                 }
             }
             AndroidWebViewMap.getMap().put(iDevice, has);

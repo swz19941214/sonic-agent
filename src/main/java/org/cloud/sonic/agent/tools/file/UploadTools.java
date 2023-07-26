@@ -3,16 +3,16 @@
  *   Copyright (C) 2022 SonicCloudOrg
  *
  *   This program is free software: you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation, either version 3 of the License, or
+ *   it under the terms of the GNU Affero General Public License as published
+ *   by the Free Software Foundation, either version 3 of the License, or
  *   (at your option) any later version.
  *
  *   This program is distributed in the hope that it will be useful,
  *   but WITHOUT ANY WARRANTY; without even the implied warranty of
  *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *   GNU General Public License for more details.
+ *   GNU Affero General Public License for more details.
  *
- *   You should have received a copy of the GNU General Public License
+ *   You should have received a copy of the GNU Affero General Public License
  *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 package org.cloud.sonic.agent.tools.file;
@@ -56,7 +56,7 @@ public class UploadTools {
     @Autowired
     public void setRestTemplate(RestTemplate restTemplate) {
         UploadTools.restTemplate = restTemplate;
-        baseUrl = "http://" + host + ":" + port + "/server/api/folder".replace(":80/", "/");
+        baseUrl = ("http://" + host + ":" + port + "/server/api/folder").replace(":80/", "/");
     }
 
     public static String upload(File uploadFile, String type) {
@@ -83,7 +83,7 @@ public class UploadTools {
         param.add("file", resource);
         param.add("type", type);
         ResponseEntity<JSONObject> responseEntity =
-                restTemplate.postForEntity(baseUrl + "/upload", param, JSONObject.class);
+                restTemplate.postForEntity(baseUrl + "/upload/v2", param, JSONObject.class);
         if (responseEntity.getBody().getInteger("code") == 2000) {
             if (uploadFile.exists()) {
                 uploadFile.delete();
@@ -94,7 +94,7 @@ public class UploadTools {
         } else {
             logger.info("发送失败！" + responseEntity.getBody());
         }
-        return responseEntity.getBody().getString("data");
+        return baseUrl + "/" + responseEntity.getBody().getString("data");
     }
 
     public static String uploadPatchRecord(File uploadFile) {

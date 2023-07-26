@@ -3,24 +3,26 @@
  *   Copyright (C) 2022 SonicCloudOrg
  *
  *   This program is free software: you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation, either version 3 of the License, or
+ *   it under the terms of the GNU Affero General Public License as published
+ *   by the Free Software Foundation, either version 3 of the License, or
  *   (at your option) any later version.
  *
  *   This program is distributed in the hope that it will be useful,
  *   but WITHOUT ANY WARRANTY; without even the implied warranty of
  *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *   GNU General Public License for more details.
+ *   GNU Affero General Public License for more details.
  *
- *   You should have received a copy of the GNU General Public License
+ *   You should have received a copy of the GNU Affero General Public License
  *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 package org.cloud.sonic.agent.websockets;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
-import org.cloud.sonic.agent.automation.IOSStepHandler;
-import org.cloud.sonic.agent.bridge.android.AndroidDeviceThreadPool;
+import jakarta.websocket.*;
+import jakarta.websocket.server.PathParam;
+import jakarta.websocket.server.ServerEndpoint;
+import lombok.extern.slf4j.Slf4j;
 import org.cloud.sonic.agent.bridge.ios.IOSDeviceLocalStatus;
 import org.cloud.sonic.agent.bridge.ios.IOSDeviceThreadPool;
 import org.cloud.sonic.agent.bridge.ios.SibTool;
@@ -29,13 +31,11 @@ import org.cloud.sonic.agent.common.interfaces.DeviceStatus;
 import org.cloud.sonic.agent.common.maps.DevicesLockMap;
 import org.cloud.sonic.agent.common.maps.HandlerMap;
 import org.cloud.sonic.agent.common.maps.WebSocketSessionMap;
-import org.cloud.sonic.agent.common.models.HandleDes;
+import org.cloud.sonic.agent.common.models.HandleContext;
 import org.cloud.sonic.agent.tests.TaskManager;
+import org.cloud.sonic.agent.tests.handlers.IOSStepHandler;
 import org.cloud.sonic.agent.tests.ios.IOSRunStepThread;
-import org.cloud.sonic.agent.tools.AgentManagerTool;
-import org.cloud.sonic.agent.tools.BytesTool;
-import org.cloud.sonic.agent.tools.PortTool;
-import org.cloud.sonic.agent.tools.SGMTool;
+import org.cloud.sonic.agent.tools.*;
 import org.cloud.sonic.agent.tools.file.DownloadTool;
 import org.cloud.sonic.agent.tools.file.UploadTools;
 import org.cloud.sonic.agent.transport.TransportWorker;
@@ -44,16 +44,11 @@ import org.cloud.sonic.driver.common.tool.RespHandler;
 import org.cloud.sonic.driver.common.tool.SonicRespException;
 import org.cloud.sonic.driver.ios.IOSDriver;
 import org.cloud.sonic.driver.ios.enums.SystemButton;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.imageio.stream.FileImageOutputStream;
-import javax.websocket.*;
-import javax.websocket.server.PathParam;
-import javax.websocket.server.ServerEndpoint;
 import java.io.File;
 import java.io.IOException;
 import java.net.Socket;
@@ -61,14 +56,15 @@ import java.nio.charset.StandardCharsets;
 import java.util.Calendar;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 import static org.cloud.sonic.agent.tools.BytesTool.sendText;
 
 @Component
+@Slf4j
 @ServerEndpoint(value = "/websockets/ios/{key}/{udId}/{token}", configurator = WsEndpointConfigure.class)
 public class IOSWSServer implements IIOSWSServer {
-    private final Logger logger = LoggerFactory.getLogger(IOSWSServer.class);
 
     public static Map<String, Integer> screenMap = new HashMap<>();
     @Value("${sonic.agent.key}")
@@ -82,18 +78,27 @@ public class IOSWSServer implements IIOSWSServer {
     public void onOpen(Session session, @PathParam("key") String secretKey,
                        @PathParam("udId") String udId, @PathParam("token") String token) throws Exception {
         if (secretKey.length() == 0 || (!secretKey.equals(key)) || token.length() == 0) {
-            logger.info("拦截访问！");
+            log.info("Auth Failed!");
+            return;
+        }
+
+        boolean lockSuccess = DevicesLockMap.lockByUdId(udId, 30L, TimeUnit.SECONDS);
+        if (!lockSuccess) {
+            log.info("Fail to get device lock... please make sure device is not busy.");
+            return;
+        }
+        log.info("ios lock udId：{}", udId);
+        IOSDeviceLocalStatus.startDebug(udId);
+
+        if (!SibTool.getDeviceList().contains(udId)) {
+            log.info("Target device is not connecting, please check the connection.");
             return;
         }
 
         session.getUserProperties().put("udId", udId);
-        boolean lockSuccess = DevicesLockMap.lockByUdId(udId, 30L, TimeUnit.SECONDS);
-        if (!lockSuccess) {
-            logger.info("30s内获取设备锁失败，请确保设备无人使用");
-            return;
-        }
-        logger.info("ios lock udId：{}", udId);
-        IOSDeviceLocalStatus.startDebug(udId);
+        session.getUserProperties().put("id", String.format("%s-%s", this.getClass().getSimpleName(), udId));
+        WebSocketSessionMap.addSession(session);
+        saveUdIdMapAndSet(session, udId);
 
         // 更新使用用户
         JSONObject jsonDebug = new JSONObject();
@@ -102,12 +107,27 @@ public class IOSWSServer implements IIOSWSServer {
         jsonDebug.put("udId", udId);
         TransportWorker.send(jsonDebug);
 
-        WebSocketSessionMap.addSession(session);
-        if (!SibTool.getDeviceList().contains(udId)) {
-            logger.info("设备未连接，请检查！");
-            return;
-        }
+        session.getUserProperties().put("schedule", ScheduleTool.schedule(() -> {
+            log.info("time up!");
+            if (session.isOpen()) {
+                IOSStepHandler iosStepHandler = HandlerMap.getIOSMap().get(udId);
+                if (iosStepHandler != null) {
+                    try {
+                        iosStepHandler.getIOSDriver().pressButton("home");
+                    } catch (SonicRespException ignored) {
+                    }
+                }
+                JSONObject errMsg = new JSONObject();
+                errMsg.put("msg", "error");
+                BytesTool.sendText(session, errMsg.toJSONString());
+                exit(session);
+            }
+        }, BytesTool.remoteTimeout));
+
         saveUdIdMapAndSet(session, udId);
+        if (SibTool.getOrientation(udId) != 1) {
+            SibTool.launch(udId, "com.apple.springboard");
+        }
         int[] ports = SibTool.startWda(udId);
         if (ports[0] != 0) {
             SibTool.orientationWatcher(udId, session);
@@ -115,32 +135,33 @@ public class IOSWSServer implements IIOSWSServer {
 
         IOSDeviceThreadPool.cachedThreadPool.execute(() -> {
             IOSStepHandler iosStepHandler = new IOSStepHandler();
-            iosStepHandler.setTestMode(0, 0, udId, DeviceStatus.DEBUGGING, session.getId());
+            iosStepHandler.setTestMode(0, 0, udId, DeviceStatus.DEBUGGING, session.getUserProperties().get("id").toString());
             JSONObject result = new JSONObject();
             try {
                 iosStepHandler.startIOSDriver(udId, ports[0]);
                 result.put("status", "success");
-                result.put("width", iosStepHandler.getDriver().getWindowSize().getWidth());
-                result.put("height", iosStepHandler.getDriver().getWindowSize().getHeight());
+                result.put("width", iosStepHandler.getIOSDriver().getWindowSize().getWidth());
+                result.put("height", iosStepHandler.getIOSDriver().getWindowSize().getHeight());
                 result.put("wda", ports[0]);
                 screenMap.put(udId, ports[1]);
-                result.put("detail", "初始化 WebDriverAgent 完成！");
                 JSONObject appiumSettings = new JSONObject();
                 appiumSettings.put("mjpegServerFramerate", 60);
                 appiumSettings.put("mjpegScalingFactor", 100);
                 appiumSettings.put("mjpegServerScreenshotQuality", 50);
                 iosStepHandler.appiumSettings(appiumSettings);
-                HandlerMap.getIOSMap().put(session.getId(), iosStepHandler);
+                HandlerMap.getIOSMap().put(udId, iosStepHandler);
             } catch (Exception e) {
-                logger.error(e.getMessage());
+                log.error(e.getMessage());
                 result.put("status", "error");
-                result.put("detail", "初始化 WebDriverAgent 失败！");
                 iosStepHandler.closeIOSDriver();
             } finally {
                 result.put("msg", "openDriver");
                 sendText(session, result.toJSONString());
             }
         });
+
+        SibTool.startShare(udId, session);
+
     }
 
     @OnClose
@@ -150,13 +171,13 @@ public class IOSWSServer implements IIOSWSServer {
             exit(session);
         } finally {
             DevicesLockMap.unlockAndRemoveByUdId(udId);
-            logger.info("ios unlock udId：{}", udId);
+            log.info("ios unlock udId：{}", udId);
         }
     }
 
     @OnError
     public void onError(Session session, Throwable error) {
-        logger.error(error.getMessage());
+        log.info(error.fillInStackTrace().toString());
         JSONObject errMsg = new JSONObject();
         errMsg.put("msg", "error");
         sendText(session, errMsg.toJSONString());
@@ -165,23 +186,24 @@ public class IOSWSServer implements IIOSWSServer {
     @OnMessage
     public void onMessage(String message, Session session) {
         JSONObject msg = JSON.parseObject(message);
-        logger.info("{} send: {}", session.getId(), msg);
+        log.info("{} send: {}", session.getUserProperties().get("id").toString(), msg);
         String udId = udIdMap.get(session);
         IOSDeviceThreadPool.cachedThreadPool.execute(() -> {
             IOSDriver iosDriver = null;
-            IOSStepHandler iosStepHandler = HandlerMap.getIOSMap().get(session.getId());
-            if (iosStepHandler != null && iosStepHandler.getDriver() != null) {
-                iosDriver = iosStepHandler.getDriver();
+            IOSStepHandler iosStepHandler = HandlerMap.getIOSMap().get(udId);
+            if (iosStepHandler != null && iosStepHandler.getIOSDriver() != null) {
+                iosDriver = iosStepHandler.getIOSDriver();
             }
             switch (msg.getString("type")) {
-                case "forwardView": {
+                case "startPerfmon" -> SibTool.startPerfmon(udId, msg.getString("bundleId"), session, null, 1000);
+                case "stopPerfmon" -> SibTool.stopPerfmon(udId);
+                case "forwardView" -> {
                     JSONObject forwardView = new JSONObject();
                     forwardView.put("msg", "forwardView");
                     forwardView.put("detail", SibTool.getWebView(udId));
                     BytesTool.sendText(session, forwardView.toJSONString());
-                    break;
                 }
-                case "screen": {
+                case "screen" -> {
                     JSONObject appiumSettings = new JSONObject();
                     if (msg.getString("detail").equals("low")) {
                         appiumSettings.put("mjpegServerFramerate", 50);
@@ -197,9 +219,8 @@ public class IOSWSServer implements IIOSWSServer {
                     } catch (SonicRespException e) {
                         e.printStackTrace();
                     }
-                    break;
                 }
-                case "setPasteboard": {
+                case "setPasteboard" -> {
                     if (iosDriver != null) {
                         try {
                             iosDriver.appActivate("com.apple.springboard");
@@ -214,9 +235,8 @@ public class IOSWSServer implements IIOSWSServer {
                             e.printStackTrace();
                         }
                     }
-                    break;
                 }
-                case "getPasteboard": {
+                case "getPasteboard" -> {
                     if (iosDriver != null) {
                         try {
                             iosDriver.appActivate("com.apple.springboard");
@@ -231,9 +251,8 @@ public class IOSWSServer implements IIOSWSServer {
                             e.printStackTrace();
                         }
                     }
-                    break;
                 }
-                case "send": {
+                case "send" -> {
                     RespHandler sendHandler = new RespHandler();
                     sendHandler.setRequestTimeOut(2000);
                     RespHandler respHandler = iosDriver.getWdaClient().getRespHandler();
@@ -245,17 +264,15 @@ public class IOSWSServer implements IIOSWSServer {
                     } finally {
                         iosDriver.getWdaClient().setRespHandler(respHandler);
                     }
-                    break;
                 }
-                case "location": {
+                case "location" -> {
                     if (msg.getString("detail").equals("set")) {
                         SibTool.locationSet(udId, msg.getString("long"), msg.getString("lat"));
                     } else {
                         SibTool.locationUnset(udId);
                     }
-                    break;
                 }
-                case "proxy": {
+                case "proxy" -> {
                     Socket portSocket = PortTool.getBindSocket();
                     Socket webPortSocket = PortTool.getBindSocket();
                     int pPort = PortTool.releaseAndGetPort(portSocket);
@@ -266,54 +283,41 @@ public class IOSWSServer implements IIOSWSServer {
                     proxy.put("port", pPort);
                     proxy.put("msg", "proxyResult");
                     sendText(session, proxy.toJSONString());
-                    break;
                 }
-                case "installCert":
-                    SibTool.launch(udId, "com.apple.mobilesafari");
-                    break;
-                case "launch":
-                    SibTool.launch(udId, msg.getString("pkg"));
-                    break;
-                case "uninstallApp":
-                    SibTool.uninstall(udId, msg.getString("detail"));
-                    break;
-                case "debug":
+                case "installCert" -> SibTool.launch(udId, "com.apple.mobilesafari");
+                case "launch" -> SibTool.launch(udId, msg.getString("pkg"));
+                case "kill" -> SibTool.kill(udId, msg.getString("pkg"));
+                case "uninstallApp" -> SibTool.uninstall(udId, msg.getString("detail"));
+                case "debug" -> {
                     switch (msg.getString("detail")) {
-                        case "poco": {
-                            IOSDeviceThreadPool.cachedThreadPool.execute(() -> {
-                                iosStepHandler.startPocoDriver(new HandleDes(), msg.getString("engine"), msg.getInteger("port"));
-                                JSONObject poco = new JSONObject();
-                                try {
-                                    poco.put("result", iosStepHandler.getPocoDriver().getPageSourceForJsonString());
-                                } catch (SonicRespException e) {
-                                    poco.put("result", "");
-                                    e.printStackTrace();
-                                }
-                                poco.put("msg", "poco");
-                                BytesTool.sendText(session, poco.toJSONString());
-                                iosStepHandler.closePocoDriver(new HandleDes());
-                            });
-                            break;
-                        }
-                        case "runStep": {
+                        case "poco" -> IOSDeviceThreadPool.cachedThreadPool.execute(() -> {
+                            iosStepHandler.startPocoDriver(new HandleContext(), msg.getString("engine"), msg.getInteger("port"));
+                            JSONObject poco = new JSONObject();
+                            try {
+                                poco.put("result", iosStepHandler.getPocoDriver().getPageSourceForJsonString());
+                            } catch (SonicRespException e) {
+                                poco.put("result", "");
+                                e.printStackTrace();
+                            }
+                            poco.put("msg", "poco");
+                            BytesTool.sendText(session, poco.toJSONString());
+                            iosStepHandler.closePocoDriver(new HandleContext());
+                        });
+                        case "runStep" -> {
                             JSONObject jsonDebug = new JSONObject();
                             jsonDebug.put("msg", "findSteps");
                             jsonDebug.put("key", key);
                             jsonDebug.put("udId", udId);
-                            jsonDebug.put("sessionId", session.getId());
+                            jsonDebug.put("sessionId", session.getUserProperties().get("id").toString());
                             jsonDebug.put("caseId", msg.getInteger("caseId"));
                             TransportWorker.send(jsonDebug);
-                            break;
                         }
-                        case "stopStep": {
-                            TaskManager.forceStopDebugStepThread(
-                                    IOSRunStepThread.IOS_RUN_STEP_TASK_PRE.formatted(
-                                            0, msg.getInteger("caseId"), msg.getString("udId")
-                                    )
-                            );
-                            break;
-                        }
-                        case "tap": {
+                        case "stopStep" -> TaskManager.forceStopDebugStepThread(
+                                IOSRunStepThread.IOS_RUN_STEP_TASK_PRE.formatted(
+                                        0, msg.getInteger("caseId"), msg.getString("udId")
+                                )
+                        );
+                        case "tap" -> {
                             if (iosDriver != null) {
                                 String xy = msg.getString("point");
                                 int x = Integer.parseInt(xy.substring(0, xy.indexOf(",")));
@@ -324,9 +328,8 @@ public class IOSWSServer implements IIOSWSServer {
                                     e.printStackTrace();
                                 }
                             }
-                            break;
                         }
-                        case "longPress": {
+                        case "longPress" -> {
                             if (iosDriver != null) {
                                 String xy = msg.getString("point");
                                 int x = Integer.parseInt(xy.substring(0, xy.indexOf(",")));
@@ -337,9 +340,8 @@ public class IOSWSServer implements IIOSWSServer {
                                     e.printStackTrace();
                                 }
                             }
-                            break;
                         }
-                        case "swipe": {
+                        case "swipe" -> {
                             if (iosDriver != null) {
                                 String xy1 = msg.getString("pointA");
                                 String xy2 = msg.getString("pointB");
@@ -353,9 +355,8 @@ public class IOSWSServer implements IIOSWSServer {
                                     e.printStackTrace();
                                 }
                             }
-                            break;
                         }
-                        case "keyEvent": {
+                        case "keyEvent" -> {
                             if (iosDriver != null) {
                                 try {
                                     if (msg.getString("key").equals("home") || msg.getString("key").equals("volumeup") || msg.getString("key").equals("volumedown")) {
@@ -373,9 +374,8 @@ public class IOSWSServer implements IIOSWSServer {
                                     e.printStackTrace();
                                 }
                             }
-                            break;
                         }
-                        case "siri": {
+                        case "siri" -> {
                             if (iosDriver != null) {
                                 try {
                                     iosDriver.sendSiriCommand(msg.getString("command"));
@@ -383,20 +383,22 @@ public class IOSWSServer implements IIOSWSServer {
                                     e.printStackTrace();
                                 }
                             }
-                            break;
                         }
-                        case "tree": {
+                        case "tree" -> {
                             if (iosDriver != null) {
                                 try {
                                     JSONObject result = new JSONObject();
                                     result.put("msg", "tree");
-                                    result.put("detail", iosStepHandler.getResource());
-                                    HandleDes handleDes = new HandleDes();
+                                    HandleContext handleContext = new HandleContext();
                                     if (msg.getBoolean("needImg")) {
-                                        result.put("img", iosStepHandler.stepScreen(handleDes));
+                                        result.put("img", iosStepHandler.stepScreen(handleContext));
                                     }
-                                    if (handleDes.getE() != null) {
-                                        logger.error(handleDes.getE().getMessage());
+                                    if (msg.getInteger("depth") != null) {
+                                        iosStepHandler.setSnapshotMaxDepth(handleContext, msg.getInteger("depth"));
+                                    }
+                                    result.put("detail", iosStepHandler.getResource());
+                                    if (handleContext.getE() != null) {
+                                        log.error(handleContext.getE().getMessage());
                                         JSONObject resultFail = new JSONObject();
                                         resultFail.put("msg", "treeFail");
                                         sendText(session, resultFail.toJSONString());
@@ -404,15 +406,14 @@ public class IOSWSServer implements IIOSWSServer {
                                         sendText(session, result.toJSONString());
                                     }
                                 } catch (Throwable e) {
-                                    logger.error(e.getMessage());
+                                    log.error(e.getMessage());
                                     JSONObject result = new JSONObject();
                                     result.put("msg", "treeFail");
                                     sendText(session, result.toJSONString());
                                 }
                             }
-                            break;
                         }
-                        case "eleScreen": {
+                        case "eleScreen" -> {
                             if (iosDriver != null) {
                                 JSONObject result = new JSONObject();
                                 result.put("msg", "eleScreen");
@@ -432,13 +433,12 @@ public class IOSWSServer implements IIOSWSServer {
                                     }
                                     result.put("img", UploadTools.upload(output, "keepFiles"));
                                 } catch (Exception e) {
-                                    result.put("errMsg", "获取元素截图失败！");
+                                    log.info(e.fillInStackTrace().toString());
                                 }
                                 sendText(session, result.toJSONString());
                             }
-                            break;
                         }
-                        case "install": {
+                        case "install" -> {
                             JSONObject result = new JSONObject();
                             result.put("msg", "installFinish");
                             try {
@@ -450,35 +450,43 @@ public class IOSWSServer implements IIOSWSServer {
                                 e.printStackTrace();
                             }
                             sendText(session, result.toJSONString());
-                            break;
                         }
                     }
-                    break;
+                }
             }
         });
     }
 
     private void exit(Session session) {
-        String udId = udIdMap.get(session);
-        screenMap.remove(udId);
-        SibTool.stopOrientationWatcher(udId);
-        try {
-            HandlerMap.getIOSMap().get(session.getId()).closeIOSDriver();
-        } catch (Exception e) {
-            logger.info("关闭driver异常!");
-        } finally {
-            HandlerMap.getIOSMap().remove(session.getId());
+        synchronized (session) {
+            ScheduledFuture<?> future = (ScheduledFuture<?>) session.getUserProperties().get("schedule");
+            future.cancel(true);
+            String udId = udIdMap.get(session);
+            screenMap.remove(udId);
+            SibTool.stopOrientationWatcher(udId);
+            try {
+                IOSStepHandler iosStepHandler = HandlerMap.getIOSMap().get(udId);
+                if (iosStepHandler != null) {
+                    iosStepHandler.closeIOSDriver();
+                }
+            } catch (Exception e) {
+                log.info("close driver failed.");
+            } finally {
+                HandlerMap.getIOSMap().remove(udId);
+            }
+            SibTool.stopWebInspector(udId);
+            SibTool.stopPerfmon(udId);
+            SibTool.stopShare(udId);
+            SGMTool.stopProxy(udId);
+            IOSDeviceLocalStatus.finish(session.getUserProperties().get("udId") + "");
+            WebSocketSessionMap.removeSession(session);
+            removeUdIdMapAndSet(session);
+            try {
+                session.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            log.info("{} : quit.", session.getUserProperties().get("id").toString());
         }
-        SibTool.stopWebInspector(udId);
-        SGMTool.stopProxy(udId);
-        IOSDeviceLocalStatus.finish(session.getUserProperties().get("udId") + "");
-        WebSocketSessionMap.removeSession(session);
-        removeUdIdMapAndSet(session);
-        try {
-            session.close();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        logger.info("{} : quit.", session.getId());
     }
 }

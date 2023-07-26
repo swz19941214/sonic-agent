@@ -3,21 +3,22 @@
  *   Copyright (C) 2022 SonicCloudOrg
  *
  *   This program is free software: you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation, either version 3 of the License, or
+ *   it under the terms of the GNU Affero General Public License as published
+ *   by the Free Software Foundation, either version 3 of the License, or
  *   (at your option) any later version.
  *
  *   This program is distributed in the hope that it will be useful,
  *   but WITHOUT ANY WARRANTY; without even the implied warranty of
  *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *   GNU General Public License for more details.
+ *   GNU Affero General Public License for more details.
  *
- *   You should have received a copy of the GNU General Public License
+ *   You should have received a copy of the GNU Affero General Public License
  *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 package org.cloud.sonic.agent.tests;
 
 import com.alibaba.fastjson.JSONObject;
+import jakarta.websocket.Session;
 import org.cloud.sonic.agent.common.interfaces.DeviceStatus;
 import org.cloud.sonic.agent.common.interfaces.StepType;
 import org.cloud.sonic.agent.common.maps.WebSocketSessionMap;
@@ -25,7 +26,6 @@ import org.cloud.sonic.agent.transport.TransportWorker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.websocket.Session;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -55,13 +55,13 @@ public class LogUtil {
         message.put("cid", caseId);
         message.put("rid", resultId);
         message.put("udId", udId);
+        logger.info(message.toJSONString());
         if (type.equals(DeviceStatus.DEBUGGING)) {
             sendToWebSocket(WebSocketSessionMap.getSession(sessionId), message);
         }
         if (type.equals(DeviceStatus.TESTING)) {
             sendToServer(message);
         }
-        logger.info(message.toJSONString());
     }
 
     /**
@@ -146,19 +146,18 @@ public class LogUtil {
     }
 
     /**
-     * @param type
      * @param detail
      * @return void
      * @author ZhouYiXun
      * @des 发送性能数据
      * @date 2021/8/16 19:58
      */
-    public void sendPerLog(String packageName, int type, JSONObject detail) {
+    public void sendPerLog(String detail) {
         JSONObject log = new JSONObject();
         log.put("msg", "perform");
-        log.put("des", packageName);
-        log.put("log", detail.toJSONString());
-        log.put("status", type);
+        log.put("des", "");
+        log.put("status", 1);
+        log.put("log", detail);
         send(log);
     }
 

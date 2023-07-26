@@ -3,44 +3,43 @@
  *   Copyright (C) 2022 SonicCloudOrg
  *
  *   This program is free software: you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation, either version 3 of the License, or
+ *   it under the terms of the GNU Affero General Public License as published
+ *   by the Free Software Foundation, either version 3 of the License, or
  *   (at your option) any later version.
  *
  *   This program is distributed in the hope that it will be useful,
  *   but WITHOUT ANY WARRANTY; without even the implied warranty of
  *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *   GNU General Public License for more details.
+ *   GNU Affero General Public License for more details.
  *
- *   You should have received a copy of the GNU General Public License
+ *   You should have received a copy of the GNU Affero General Public License
  *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 package org.cloud.sonic.agent.tools;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import jakarta.websocket.Session;
+import lombok.extern.slf4j.Slf4j;
 
-import javax.websocket.Session;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
-import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 /**
  * @author ZhouYiXun
  * @des
  * @date 2021/8/26 22:23
  */
+@Slf4j
 public class BytesTool {
-    private static final Logger log = LoggerFactory.getLogger(BytesTool.class);
 
     public static int agentId = 0;
     public static String agentHost = "";
     public static int highTemp = 0;
     public static int highTempTime = 0;
+
+    public static int remoteTimeout = 480;
 
     public static int toInt(byte[] b) {
         int res = 0;
@@ -120,6 +119,10 @@ public class BytesTool {
         }
     }
 
+    public static boolean isInt(String s) {
+        return s.matches("[0-9]+");
+    }
+
     public static int getInt(String a) {
         String regEx = "[^0-9]";
         Pattern p = Pattern.compile(regEx);
@@ -147,6 +150,6 @@ public class BytesTool {
     }
 
     public static int[] parseVersion(String s) {
-        return Arrays.asList(s.split("\\.")).stream().mapToInt(Integer::parseInt).toArray();
+        return Arrays.stream(s.split("\\.")).mapToInt(Integer::parseInt).toArray();
     }
 }

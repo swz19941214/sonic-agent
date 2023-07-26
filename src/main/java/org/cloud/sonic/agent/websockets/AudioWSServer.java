@@ -3,37 +3,37 @@
  *   Copyright (C) 2022 SonicCloudOrg
  *
  *   This program is free software: you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation, either version 3 of the License, or
+ *   it under the terms of the GNU Affero General Public License as published
+ *   by the Free Software Foundation, either version 3 of the License, or
  *   (at your option) any later version.
  *
  *   This program is distributed in the hope that it will be useful,
  *   but WITHOUT ANY WARRANTY; without even the implied warranty of
  *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *   GNU General Public License for more details.
+ *   GNU Affero General Public License for more details.
  *
- *   You should have received a copy of the GNU General Public License
+ *   You should have received a copy of the GNU Affero General Public License
  *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 package org.cloud.sonic.agent.websockets;
 
 import com.android.ddmlib.IDevice;
+import jakarta.websocket.OnClose;
+import jakarta.websocket.OnError;
+import jakarta.websocket.OnOpen;
+import jakarta.websocket.Session;
+import jakarta.websocket.server.PathParam;
+import jakarta.websocket.server.ServerEndpoint;
+import lombok.extern.slf4j.Slf4j;
 import org.cloud.sonic.agent.bridge.android.AndroidDeviceBridgeTool;
 import org.cloud.sonic.agent.common.config.WsEndpointConfigure;
 import org.cloud.sonic.agent.common.maps.AndroidAPKMap;
+import org.cloud.sonic.agent.common.maps.WebSocketSessionMap;
 import org.cloud.sonic.agent.tools.BytesTool;
 import org.cloud.sonic.agent.tools.PortTool;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import javax.websocket.OnClose;
-import javax.websocket.OnError;
-import javax.websocket.OnOpen;
-import javax.websocket.Session;
-import javax.websocket.server.PathParam;
-import javax.websocket.server.ServerEndpoint;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.Socket;
@@ -42,22 +42,26 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Component
+@Slf4j
 @ServerEndpoint(value = "/websockets/audio/{key}/{udId}", configurator = WsEndpointConfigure.class)
-public class AudioWSServer {
-    private final Logger logger = LoggerFactory.getLogger(AudioWSServer.class);
+public class AudioWSServer implements IAndroidWSServer {
     @Value("${sonic.agent.key}")
     private String key;
-    private Map<Session, IDevice> udIdMap = new ConcurrentHashMap<>();
     private Map<Session, Thread> audioMap = new ConcurrentHashMap<>();
 
     @OnOpen
     public void onOpen(Session session, @PathParam("key") String secretKey, @PathParam("udId") String udId) throws Exception {
         if (secretKey.length() == 0 || (!secretKey.equals(key))) {
-            logger.info("拦截访问！");
+            log.info("Auth Failed!");
             return;
         }
         IDevice iDevice = AndroidDeviceBridgeTool.getIDeviceByUdId(udId);
-        udIdMap.put(session, iDevice);
+
+        session.getUserProperties().put("udId", udId);
+        session.getUserProperties().put("id", String.format("%s-%s", this.getClass().getSimpleName(), udId));
+        WebSocketSessionMap.addSession(session);
+        saveUdIdMapAndSet(session, iDevice);
+
         int wait = 0;
         boolean isInstall = true;
         while (AndroidAPKMap.getMap().get(udId) == null || (!AndroidAPKMap.getMap().get(udId))) {
@@ -69,7 +73,7 @@ public class AudioWSServer {
             }
         }
         if (!isInstall) {
-            logger.info("等待安装超时！");
+            log.info("Waiting for apk install timeout!");
         } else {
             startAudio(session);
         }
@@ -109,7 +113,7 @@ public class AudioWSServer {
                         if (Thread.interrupted() || lengthBytes.length == 0) {
                             break;
                         }
-                        StringBuffer binStr = new StringBuffer();
+                        StringBuilder binStr = new StringBuilder();
                         for (byte lengthByte : lengthBytes) {
                             binStr.append(lengthByte);
                         }
@@ -138,7 +142,7 @@ public class AudioWSServer {
                         }
                     }
                 }
-            } catch (Exception e) {
+            } catch (Exception ignored) {
             }
             AndroidDeviceBridgeTool.removeForward(iDevice, appAudioPort, "sonicaudioservice");
         });
@@ -168,7 +172,7 @@ public class AudioWSServer {
 //    @OnMessage
 //    public void onMessage(String message, Session session) {
 //        JSONObject msg = JSON.parseObject(message);
-//        logger.info("{} send: {}",session.getId(), msg);
+//        log.info("{} send: {}",session.getUserProperties().get("id").toString(), msg);
 //        switch (msg.getString("type")) {
 //            case "start":
 //                startAudio(session);
@@ -186,17 +190,18 @@ public class AudioWSServer {
 
     @OnError
     public void onError(Session session, Throwable error) {
-        logger.error("音频socket发生错误，刷新瞬间可无视：", error);
+        log.info("Audio socket error, cause: {}, ignore...", error.getMessage());
     }
 
     private void exit(Session session) {
         stopAudio(session);
-        udIdMap.remove(session);
+        WebSocketSessionMap.removeSession(session);
+        removeUdIdMapAndSet(session);
         try {
             session.close();
         } catch (IOException e) {
             e.printStackTrace();
         }
-        logger.info("{} : quit.",session.getId());
+        log.info("{} : quit.", session.getUserProperties().get("id").toString());
     }
 }

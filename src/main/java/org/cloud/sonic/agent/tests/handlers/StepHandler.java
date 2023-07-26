@@ -3,24 +3,24 @@
  *   Copyright (C) 2022 SonicCloudOrg
  *
  *   This program is free software: you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation, either version 3 of the License, or
+ *   it under the terms of the GNU Affero General Public License as published
+ *   by the Free Software Foundation, either version 3 of the License, or
  *   (at your option) any later version.
  *
  *   This program is distributed in the hope that it will be useful,
  *   but WITHOUT ANY WARRANTY; without even the implied warranty of
  *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *   GNU General Public License for more details.
+ *   GNU Affero General Public License for more details.
  *
- *   You should have received a copy of the GNU General Public License
+ *   You should have received a copy of the GNU Affero General Public License
  *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 package org.cloud.sonic.agent.tests.handlers;
 
 import com.alibaba.fastjson.JSONObject;
-import org.cloud.sonic.agent.common.models.HandleDes;
 import org.cloud.sonic.agent.common.enums.ConditionEnum;
-import org.cloud.sonic.agent.tests.common.RunStepThread;
+import org.cloud.sonic.agent.common.models.HandleContext;
+import org.cloud.sonic.agent.tests.RunStepThread;
 
 /**
  * @author JayWenStar
@@ -31,7 +31,7 @@ public interface StepHandler {
     /**
      * 如果返回null则表示任务停止了
      */
-    HandleDes runStep(JSONObject step, HandleDes handleDes, RunStepThread thread) throws Throwable;
+    HandleContext runStep(JSONObject step, HandleContext handleContext, RunStepThread thread) throws Throwable;
 
     ConditionEnum getCondition();
 
@@ -39,7 +39,7 @@ public interface StepHandler {
         if (step.containsKey("pubSteps")) {
             return step;
         }
-        return new JSONObject(){
+        return new JSONObject() {
             {
                 put("step", step);
             }

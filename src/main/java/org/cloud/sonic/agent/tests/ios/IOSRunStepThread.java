@@ -3,24 +3,24 @@
  *   Copyright (C) 2022 SonicCloudOrg
  *
  *   This program is free software: you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation, either version 3 of the License, or
+ *   it under the terms of the GNU Affero General Public License as published
+ *   by the Free Software Foundation, either version 3 of the License, or
  *   (at your option) any later version.
  *
  *   This program is distributed in the hope that it will be useful,
  *   but WITHOUT ANY WARRANTY; without even the implied warranty of
  *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *   GNU General Public License for more details.
+ *   GNU Affero General Public License for more details.
  *
- *   You should have received a copy of the GNU General Public License
+ *   You should have received a copy of the GNU Affero General Public License
  *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 package org.cloud.sonic.agent.tests.ios;
 
 import com.alibaba.fastjson.JSONObject;
-import org.cloud.sonic.agent.common.models.HandleDes;
 import org.cloud.sonic.agent.common.interfaces.PlatformType;
-import org.cloud.sonic.agent.tests.common.RunStepThread;
+import org.cloud.sonic.agent.common.models.HandleContext;
+import org.cloud.sonic.agent.tests.RunStepThread;
 import org.cloud.sonic.agent.tests.handlers.StepHandlers;
 import org.cloud.sonic.agent.tools.SpringTool;
 import org.slf4j.Logger;
@@ -56,14 +56,15 @@ public class IOSRunStepThread extends RunStepThread {
         List<JSONObject> steps = jsonObject.getJSONArray("steps").toJavaList(JSONObject.class);
 
         // 复用同一个handleDes
-        HandleDes handleDes = new HandleDes();
+        HandleContext handleContext = new HandleContext();
         for (JSONObject step : steps) {
             if (isStopped()) {
                 return;
             }
             try {
-                stepHandlers.runStep(step, handleDes, this);
+                stepHandlers.runStep(step, handleContext, this);
             } catch (Throwable e) {
+                e.printStackTrace();
                 break;
             }
         }

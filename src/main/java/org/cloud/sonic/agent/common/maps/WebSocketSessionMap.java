@@ -1,9 +1,9 @@
 package org.cloud.sonic.agent.common.maps;
 
+import jakarta.websocket.Session;
 import org.springframework.lang.NonNull;
 import org.springframework.util.Assert;
 
-import javax.websocket.Session;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -25,11 +25,11 @@ public class WebSocketSessionMap {
     }
 
     public static void addSession(@NonNull Session session) {
-        sessionMap.put(session.getId(), session);
+        sessionMap.put(session.getUserProperties().get("id").toString(), session);
     }
 
     public static void removeSession(@NonNull Session session) {
-        removeSession(session.getId());
+        removeSession(session.getUserProperties().get("id").toString());
     }
 
     public static void removeSession(String sessionId) {

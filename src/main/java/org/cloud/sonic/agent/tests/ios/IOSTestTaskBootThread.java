@@ -3,26 +3,26 @@
  *   Copyright (C) 2022 SonicCloudOrg
  *
  *   This program is free software: you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation, either version 3 of the License, or
+ *   it under the terms of the GNU Affero General Public License as published
+ *   by the Free Software Foundation, either version 3 of the License, or
  *   (at your option) any later version.
  *
  *   This program is distributed in the hope that it will be useful,
  *   but WITHOUT ANY WARRANTY; without even the implied warranty of
  *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *   GNU General Public License for more details.
+ *   GNU Affero General Public License for more details.
  *
- *   You should have received a copy of the GNU General Public License
+ *   You should have received a copy of the GNU Affero General Public License
  *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 package org.cloud.sonic.agent.tests.ios;
 
 import com.alibaba.fastjson.JSONObject;
-import org.cloud.sonic.agent.automation.IOSStepHandler;
 import org.cloud.sonic.agent.bridge.ios.IOSDeviceLocalStatus;
 import org.cloud.sonic.agent.bridge.ios.SibTool;
 import org.cloud.sonic.agent.common.interfaces.ResultDetailStatus;
 import org.cloud.sonic.agent.tests.TaskManager;
+import org.cloud.sonic.agent.tests.handlers.IOSStepHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -170,7 +170,6 @@ public class IOSTestTaskBootThread extends Thread {
                 iosStepHandler.waitDevice(wait);
                 if (wait >= 6 * 10) {
                     iosStepHandler.waitDeviceTimeOut();
-                    iosStepHandler.sendStatus();
                     return;
                 } else {
                     Thread.sleep(10000);
@@ -185,7 +184,6 @@ public class IOSTestTaskBootThread extends Thread {
             } catch (Exception e) {
                 log.error(e.getMessage());
                 iosStepHandler.closeIOSDriver();
-                iosStepHandler.sendStatus();
                 IOSDeviceLocalStatus.finishError(udId);
                 return;
             }
@@ -193,7 +191,6 @@ public class IOSTestTaskBootThread extends Thread {
             //电量过低退出测试
             if (iosStepHandler.getBattery()) {
                 iosStepHandler.closeIOSDriver();
-                iosStepHandler.sendStatus();
                 IOSDeviceLocalStatus.finish(udId);
                 return;
             }
@@ -212,7 +209,7 @@ public class IOSTestTaskBootThread extends Thread {
                 Thread.sleep(1000);
             }
         } catch (InterruptedException e) {
-            log.error("任务异常，中断：{}", e.getMessage());
+            log.error("Task error, stopping... cause by: {}", e.getMessage());
             iosStepHandler.setResultDetailStatus(ResultDetailStatus.FAIL);
             forceStop = true;
         } finally {

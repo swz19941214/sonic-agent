@@ -1,6 +1,7 @@
 package org.cloud.sonic.agent.common.maps;
 
-import javax.websocket.Session;
+import jakarta.websocket.Session;
+
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
